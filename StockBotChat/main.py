@@ -4,10 +4,13 @@ from typing import Annotated
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from mangum import Mangum
+import os
+from dotenv import load_dotenv
 
-openai = OpenAI(
-    api_key='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'
-)
+load_dotenv()
+# Access the OpenAI API key
+openai_api_key = os.getenv('OPENAI_API_KEY')
+openai = OpenAI(api_key=openai_api_key)
 
 app = FastAPI()
 handler = Mangum(app)
