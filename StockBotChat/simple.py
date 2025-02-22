@@ -4,9 +4,10 @@ from dotenv import load_dotenv
 load_dotenv()
 # Access the OpenAI API key
 openai_api_key = os.getenv('OPENAI_API_KEY')
+openai_model = os.getenv('OPENAI_MODEL')
 openai = OpenAI(api_key=openai_api_key)
 response = openai.chat.completions.create(
-  model="gpt-4o-mini",
+  model=openai_model,
   messages=[
     {
       "role": "system",

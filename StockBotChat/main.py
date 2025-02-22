@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 # Access the OpenAI API key
 openai_api_key = os.getenv('OPENAI_API_KEY')
+openai_model = os.getenv('OPENAI_MODEL')
 openai = OpenAI(api_key=openai_api_key)
 
 app = FastAPI()
@@ -23,9 +24,8 @@ async def chat_page(request: Request):
     print("GETTING CHAT PAGE")
     return templates.TemplateResponse("home.html", {"request": request, "chat_responses": chat_responses})
 
-
 chat_log = [{'role': 'system',
-             'content': 'You are Stock Specialist'
+             'content': 'You are a Specialist in Stocks, options, investments. High expertise knowledge of Trading'
              }]
 
 @app.post("/", response_class=HTMLResponse)
@@ -35,7 +35,7 @@ async def chat(request: Request, user_input: Annotated[str, Form()]):
     chat_responses.append(user_input)
 
     response = openai.chat.completions.create(
-        model='gpt-4o-mini',
+        model=openai_model,
         messages=chat_log,
         temperature=0.6
     )
