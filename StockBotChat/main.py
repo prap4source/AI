@@ -15,7 +15,7 @@ openai = OpenAI(api_key=openai_api_key)
 
 app = FastAPI()
 handler = Mangum(app)
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory="html_plain")
 
 chat_responses = []
 
