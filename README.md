@@ -13,11 +13,6 @@ For Developing StockChatBot follow these steps
 OPENAI_API_KEY='<Your openAI Key>'
 OPENAI_MODEL='<model to use gpt-4o-mini etc'
 7) In Pycharm terminal run the app
-  a) For running Non-Websockets Chatbot
-#cd StockBotChat
-#uvicorn --reload main:app 
-Openbrowser http://127.0.0.1/8080
-  b) For running Non-Websockets Chatbot
 #cd StockBotChat
 #uvicorn --reload main_ws:app 
 Openbrowser http://127.0.0.1/8080
