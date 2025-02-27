@@ -51,7 +51,22 @@ async def chat(websocket: WebSocket):
             await websocket.send_text(f'Error: {str(e)}')
             break
 
+@app.get("/image", response_class=HTMLResponse)
+async def image_page(request: Request):
+    return templates.TemplateResponse("image.html", {"request": request})
 
+
+@app.post("/image", response_class=HTMLResponse)
+async def create_image(request: Request, user_input: Annotated[str, Form()]):
+
+    response = openai.images.generate(
+        prompt=user_input,
+        n=1,
+        size="512x512"
+    )
+
+    image_url = response.data[0].url
+    return templates.TemplateResponse("image.html", {"request": request, "image_url": image_url})
 
 
 
