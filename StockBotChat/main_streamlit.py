@@ -93,6 +93,8 @@ def handle_user_input(api_key, llm, model_name):
                 st.error(f"An error occurred: {e}")
         elif model_name == "OpenAI":
             openai = OpenAI(api_key=api_key)
+            content_prompt = 'You are stock specialist, reply only stock and financial related questions'
+            st.session_state.chat_log.append({"role": "system", "content": content_prompt})
             st.session_state.chat_log.append({"role": "user", "content": prompt})
             try:
                 response = openai.chat.completions.create(
