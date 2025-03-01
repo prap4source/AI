@@ -7,6 +7,7 @@ import stock_helper as st_func
 import json
 
 available_functions = {
+    'calculate_sip_roi': st_func.calculate_sip_roi,
     'get_stock_price': st_func.get_stock_price,
     'calculate_SMA': st_func.calculate_SMA,
     'calculate_EMA': st_func.calculate_EMA,
@@ -81,10 +82,10 @@ def display_chat_messages():
     for message in st.session_state.chat_log:
         if isinstance(message, dict):
             with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+                st.markdown(message["content"], unsafe_allow_html=True)
         elif hasattr(message, 'role') and hasattr(message, 'content'):
             with st.chat_message(message.role):
-                st.markdown(message.content)
+                st.markdown(message.content, unsafe_allow_html=True)
 
 # --- Chatbot Logic ---
 def handle_user_input(api_key, llm, model_name):
@@ -122,8 +123,8 @@ def handle_user_input(api_key, llm, model_name):
                     function_name = ai_response.function_call.name
                     function_args = json.loads(ai_response.function_call.arguments)
                     args_dict = dict()
-                    if function_name in ['get_stock_price', 'plot_stock_price', 'calculate_RSI', 'calculate_MACD']:
-                        args_dict = {'ticker': function_args.get('ticker')}
+                    if function_name in ['calculate_sip_roi','get_stock_price', 'plot_stock_price', 'calculate_RSI', 'calculate_MACD']:
+                        args_dict = {'ticker': function_args.get('ticker') if 'ticker' in function_args else function_args.get('ticker')} #Use ticker if present, else use ticker.
                     elif function_name in ['calculate_SMA', 'calculate_EMA']:
                         args_dict = {'ticker': function_args.get('ticker'), 'window': function_args.get('window')}
                     function_to_call = available_functions[function_name]
@@ -131,6 +132,9 @@ def handle_user_input(api_key, llm, model_name):
 
                     if function_name == 'plot_stock_price':
                         st.image('stock.png')
+                    elif function_name == 'calculate_sip_roi':
+                        st.markdown(function_response.replace('\n', '<br>'), unsafe_allow_html=True) #Display roi result correctly.
+                        st.session_state.chat_log.append({'role':'assistant', 'content': function_response})
                     else:
                         combined_content = function_response  # Start with the function response.
                         if ai_response.content:  # Check if ai_response.content is not None.
