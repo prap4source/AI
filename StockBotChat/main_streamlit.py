@@ -3,6 +3,17 @@ import google.generativeai as genai
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
+import stock_helper as st_func
+import json
+
+available_functions = {
+    'get_stock_price': st_func.get_stock_price,
+    'calculate_SMA': st_func.calculate_SMA,
+    'calculate_EMA': st_func.calculate_EMA,
+    'calculate_RSI': st_func.calculate_RSI,
+    'calculate_MACD': st_func.calculate_MACD,
+    'plot_stock_price': st_func.plot_stock_price,
+}
 
 load_dotenv()
 
@@ -41,6 +52,9 @@ def initialize_session_state(model_choice):
         st.session_state.chat_log = []
         st.session_state.messages = []
         st.session_state.model_choice = model_choice
+        if model_choice == "OpenAI":
+            content_prompt = 'You are stock specialist, reply only stock and financial related questions'
+            st.session_state.chat_log.append({"role": "system", "content": content_prompt})
 
 # --- Display Functions ---
 def display_title_bar():
@@ -64,21 +78,24 @@ def display_title_bar():
 
 def display_chat_messages():
     """Displays chat messages from session state."""
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    for message in st.session_state.chat_log:
+        if isinstance(message, dict):
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        elif hasattr(message, 'role') and hasattr(message, 'content'):
+            with st.chat_message(message.role):
+                st.markdown(message.content)
 
 # --- Chatbot Logic ---
 def handle_user_input(api_key, llm, model_name):
     """Handles user input and generates responses."""
     if prompt := st.chat_input("Enter your message here..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.chat_log.append({"role": "user", "content": prompt})
         st.chat_message("user").markdown(prompt)
 
         if model_name == "Gemini":
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(llm)
-            st.session_state.chat_log.append({'role': 'user', 'parts': [prompt]})
             try:
                 response = model.generate_content(
                     st.session_state.chat_log,
@@ -86,26 +103,47 @@ def handle_user_input(api_key, llm, model_name):
                     generation_config=genai.types.GenerationConfig(temperature=0.6)
                 )
                 ai_response = response.text
-                st.session_state.messages.append({"role": "assistant", "content": ai_response})
-                st.chat_message("assistant").markdown(ai_response)
                 st.session_state.chat_log.append({'role': 'assistant', 'parts': [ai_response]})
+                st.chat_message("assistant").markdown(ai_response)
             except Exception as e:
                 st.error(f"An error occurred: {e}")
         elif model_name == "OpenAI":
             openai = OpenAI(api_key=api_key)
-            content_prompt = 'You are stock specialist, reply only stock and financial related questions'
-            st.session_state.chat_log.append({"role": "system", "content": content_prompt})
-            st.session_state.chat_log.append({"role": "user", "content": prompt})
             try:
                 response = openai.chat.completions.create(
                     model=llm,
                     messages=st.session_state.chat_log,
-                    temperature=0.6
+                    functions=st_func.functions,
+                    function_call='auto',
+                    temperature=0.6,
                 )
-                ai_response = response.choices[0].message.content
-                st.session_state.messages.append({"role": "assistant", "content": ai_response})
-                st.chat_message("assistant").markdown(ai_response)
-                st.session_state.chat_log.append({"role": "assistant", "content": ai_response})
+                ai_response = response.choices[0].message
+                if hasattr(ai_response, 'function_call') and ai_response.function_call:
+                    function_name = ai_response.function_call.name
+                    function_args = json.loads(ai_response.function_call.arguments)
+                    args_dict = dict()
+                    if function_name in ['get_stock_price', 'plot_stock_price', 'calculate_RSI', 'calculate_MACD']:
+                        args_dict = {'ticker': function_args.get('ticker')}
+                    elif function_name in ['calculate_SMA', 'calculate_EMA']:
+                        args_dict = {'ticker': function_args.get('ticker'), 'window': function_args.get('window')}
+                    function_to_call = available_functions[function_name]
+                    function_response = function_to_call(**args_dict)
+
+                    if function_name == 'plot_stock_price':
+                        st.image('stock.png')
+                    else:
+                        combined_content = function_response  # Start with the function response.
+                        if ai_response.content:  # Check if ai_response.content is not None.
+                            combined_content = f"{ai_response.content}\n{function_response}"
+                        combined_response = {
+                                'role': 'assistant',
+                                'content': combined_content
+                        }
+                        st.session_state.chat_log.append(combined_response)
+                        st.chat_message('assistant').markdown(combined_response['content'])
+                else:
+                    st.session_state.chat_log.append(dict(ai_response))
+                    st.chat_message('assistant').markdown(ai_response.content)
             except Exception as e:
                 st.error(f"An error occurred: {e}")
 

@@ -2,6 +2,7 @@
 /.venv
 /StockBotChat/__pycache__
 /StockBotChat/.idea/
+/StockBotChat/stock.png
 /.idea
 
 
