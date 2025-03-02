@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 import stock_helper as st_func
 import json
+import botsystem
 
 available_functions = {
     'calculate_sip_roi': st_func.calculate_sip_roi,
@@ -54,7 +55,7 @@ def initialize_session_state(model_choice):
         st.session_state.messages = []
         st.session_state.model_choice = model_choice
         if model_choice == "OpenAI":
-            content_prompt = 'You are stock specialist, reply only stock and financial related questions'
+            content_prompt = botsystem.prompt
             st.session_state.chat_log.append({"role": "system", "content": content_prompt})
 
 # --- Display Functions ---
@@ -78,34 +79,48 @@ def display_title_bar():
     st.markdown('<div class="title-bar"><h1>✨ Stock Bot Chat 🤖</h1></div>', unsafe_allow_html=True)
 
 def display_chat_messages():
-    """Displays chat messages from session state."""
+    """Displays chat messages, excluding system messages."""
     for message in st.session_state.chat_log:
-        if isinstance(message, dict):
+        if message["role"] != "system":  # ✅ Skip system messages
             with st.chat_message(message["role"]):
                 st.markdown(message["content"], unsafe_allow_html=True)
-        elif hasattr(message, 'role') and hasattr(message, 'content'):
-            with st.chat_message(message.role):
-                st.markdown(message.content, unsafe_allow_html=True)
 
 # --- Chatbot Logic ---
 def handle_user_input(api_key, llm, model_name):
     """Handles user input and generates responses."""
-    if prompt := st.chat_input("Enter your message here..."):
+    prompt = st.chat_input("Enter your stock related query here...")
+
+    # ✅ Reset button directly below input field
+    col1, col2 = st.columns([0.8, 0.2])  # Adjust layout
+    with col2:
+        if st.button("🔄 Reset Chat", key="reset_button"):
+            st.session_state.chat_log = [{"role": "system", "content": "You are a financial market specialist."}]
+            st.rerun()
+    """Handles user input and generates responses."""
+    if prompt:
         st.session_state.chat_log.append({"role": "user", "content": prompt})
         st.chat_message("user").markdown(prompt)
-
         if model_name == "Gemini":
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(llm)
+
             try:
+                # ✅ Ensure chat history is properly formatted for Gemini
+                for msg in st.session_state.chat_log:
+                    if "content" in msg and "parts" not in msg:
+                        msg["parts"] = [{"text": msg.pop("content")}]
+
                 response = model.generate_content(
                     st.session_state.chat_log,
                     stream=False,
                     generation_config=genai.types.GenerationConfig(temperature=0.6)
                 )
                 ai_response = response.text
-                st.session_state.chat_log.append({'role': 'assistant', 'parts': [ai_response]})
+
+                # ✅ Append assistant response in correct format
+                st.session_state.chat_log.append({'role': 'assistant', 'parts': [{'text': ai_response}]})
                 st.chat_message("assistant").markdown(ai_response)
+
             except Exception as e:
                 st.error(f"An error occurred: {e}")
         elif model_name == "OpenAI":
