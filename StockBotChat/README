@@ -1,0 +1,7 @@
+1) Install packages
+pip install -r requirements.txt
+2) For local run main_streamlit.py
+streamlit run main_streamlit.py
+Open browser "http://localhost:8501"
+3) For remote Deploy in streamlit
+ https://share.streamlit.io
