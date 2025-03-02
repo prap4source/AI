@@ -1,39 +1,28 @@
 import streamlit as st
-import google.generativeai as genai
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
-import stock_helper as st_func
+import StockBot as sb_func  # Renamed from `import stock_helper as st_func`
 import json
 import botsystem
 
+# Mapping of function names to actual implementations
 available_functions = {
-    'calculate_sip_roi': st_func.calculate_sip_roi,
-    'get_stock_price': st_func.get_stock_price,
-    'calculate_SMA': st_func.calculate_SMA,
-    'calculate_EMA': st_func.calculate_EMA,
-    'calculate_RSI': st_func.calculate_RSI,
-    'calculate_MACD': st_func.calculate_MACD,
-    'plot_stock_price': st_func.plot_stock_price,
+    'calculate_sip_roi': sb_func.calculate_sip_roi,
+    'get_stock_price': sb_func.get_stock_price,
+    'calculate_SMA': sb_func.calculate_SMA,
+    'calculate_EMA': sb_func.calculate_EMA,
+    'calculate_RSI': sb_func.calculate_RSI,
+    'calculate_MACD': sb_func.calculate_MACD,
+    'plot_stock_price': sb_func.plot_stock_price,
 }
 
 load_dotenv()
 
-# --- Configuration ---
 @st.cache_resource
 def configure_models(model_choice):
     """Configures the selected model (Gemini or OpenAI)."""
-    if model_choice == "Gemini":
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            st.error("Please set the GEMINI_API_KEY environment variable.")
-            st.stop()
-        model = os.getenv("GEMINI_MODEL")
-        if not model:
-            st.error("Please set the GEMINI_MODEL environment variable.")
-            st.stop()
-        return api_key, model, "Gemini"
-    elif model_choice == "OpenAI":
+    if model_choice == "OpenAI":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             st.error("Please set the OPENAI_API_KEY environment variable.")
@@ -47,134 +36,191 @@ def configure_models(model_choice):
         st.error("Invalid model choice.")
         st.stop()
 
-# --- Session State Management ---
-def initialize_session_state(model_choice):
-    """Initializes session state variables."""
-    if 'model_choice' not in st.session_state or st.session_state.model_choice != model_choice:
-        st.session_state.chat_log = []
-        st.session_state.messages = []
-        st.session_state.model_choice = model_choice
-        if model_choice == "OpenAI":
-            content_prompt = botsystem.prompt
-            st.session_state.chat_log.append({"role": "system", "content": content_prompt})
+def initialize_session_state():
+    """Initializes session state variables if not already set."""
+    if "selected_tab" not in st.session_state:
+        st.session_state.selected_tab = "Stockbot"
+    if "chat_log" not in st.session_state:
+        st.session_state.chat_log = [{"role": "system", "content": botsystem.prompt}]
+    if "model_choice" not in st.session_state:
+        st.session_state.model_choice = "OpenAI"
 
-# --- Display Functions ---
-def display_title_bar():
-    """Displays the title bar with a fancy design."""
-    st.markdown(
+def sidebar_nav():
+    """
+    Displays each tab name in the sidebar as:
+      - A clickable button if it is NOT selected
+      - A static highlighted 'button' if it IS selected
+    """
+    st.sidebar.markdown(
         """
         <style>
-        .title-bar {
-            background-color: #4A90E2;
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
+        div[data-testid="stSidebar"] div.stButton > button {
+            background-color: #fafafa;
+            color: #333;
+            border: 1px solid #ccc;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+        div[data-testid="stSidebar"] div.stButton > button:hover {
+            background-color: #ddd;
+        }
+        .selected-tab {
+            background-color: #aadffd;
+            border: 1px solid #3399ff;
+            color: #000;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: 500;
+            margin-bottom: 8px;
             text-align: center;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
         </style>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
-    st.markdown('<div class="title-bar"><h1>✨ Stock Bot Chat 🤖</h1></div>', unsafe_allow_html=True)
 
-def display_chat_messages():
-    """Displays chat messages, excluding system messages."""
-    for message in st.session_state.chat_log:
-        if message["role"] != "system":  # ✅ Skip system messages
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"], unsafe_allow_html=True)
+    tabs = ["Stockbot", "Strategies", "Analysis", "News", "Picks", "Options"]
+    for tab in tabs:
+        if tab == st.session_state.selected_tab:
+            # Highlighted tab (non-clickable)
+            st.sidebar.markdown(
+                f"<div class='selected-tab'>{tab}</div>",
+                unsafe_allow_html=True
+            )
+        else:
+            # Actual Streamlit button for unselected tabs
+            if st.sidebar.button(tab, key=f"btn_{tab}"):
+                st.session_state.selected_tab = tab
+                st.rerun()
 
-# --- Chatbot Logic ---
-def handle_user_input(api_key, llm, model_name):
-    """Handles user input and generates responses."""
-    prompt = st.chat_input("Enter your stock related query here...")
+def show_chatbot_page(api_key, llm, model_name):
+    """Displays the chatbot conversation on the main page, with user input at the bottom."""
+    st.title("Chatbot")
+    st.write("Below is the conversation with your stock bot. Enter your question and press **Send** or **Enter**.")
 
-    # ✅ Reset button directly below input field
-    col1, col2 = st.columns([0.8, 0.2])  # Adjust layout
-    with col2:
-        if st.button("🔄 Reset Chat", key="reset_button"):
-            st.session_state.chat_log = [{"role": "system", "content": "You are a financial market specialist."}]
-            st.rerun()
-    """Handles user input and generates responses."""
-    if prompt:
-        st.session_state.chat_log.append({"role": "user", "content": prompt})
-        st.chat_message("user").markdown(prompt)
-        if model_name == "Gemini":
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(llm)
+    # Display existing conversation
+    for msg in st.session_state.chat_log:
+        role = msg["role"]
+        content = msg["content"]
+        if role == "system":
+            pass  # Typically hidden
+        elif role == "user":
+            st.write(f"**User:** {content}")
+        else:
+            st.write(f"**Assistant:** {content}")
 
+    st.write("---")
+
+    # Use a form so that pressing Enter in the text input also sends the message
+    with st.form("chat_form", clear_on_submit=True):
+        user_query = st.text_input(
+            "Type your question here",
+            key="chat_prompt_main",
+            placeholder="Ask me anything about stocks..."
+        )
+
+        # Two columns for "Send" and "Reset Chat"
+        col_send, col_reset = st.columns([0.2, 0.2])
+        with col_send:
+            send_clicked = st.form_submit_button("Send")  # triggered by Enter or click
+        with col_reset:
+            reset_clicked = st.form_submit_button("Reset Chat")
+
+        # Process form actions
+        if send_clicked and user_query.strip():
+            st.session_state.chat_log.append({"role": "user", "content": user_query})
             try:
-                # ✅ Ensure chat history is properly formatted for Gemini
-                for msg in st.session_state.chat_log:
-                    if "content" in msg and "parts" not in msg:
-                        msg["parts"] = [{"text": msg.pop("content")}]
-
-                response = model.generate_content(
-                    st.session_state.chat_log,
-                    stream=False,
-                    generation_config=genai.types.GenerationConfig(temperature=0.6)
-                )
-                ai_response = response.text
-
-                # ✅ Append assistant response in correct format
-                st.session_state.chat_log.append({'role': 'assistant', 'parts': [{'text': ai_response}]})
-                st.chat_message("assistant").markdown(ai_response)
-
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
-        elif model_name == "OpenAI":
-            openai = OpenAI(api_key=api_key)
-            try:
+                openai = OpenAI(api_key=api_key)
                 response = openai.chat.completions.create(
                     model=llm,
                     messages=st.session_state.chat_log,
-                    functions=st_func.functions,
+                    functions=sb_func.functions,  # Updated reference
                     function_call='auto',
                     temperature=0.6,
                 )
                 ai_response = response.choices[0].message
+
+                # Check for function call
                 if hasattr(ai_response, 'function_call') and ai_response.function_call:
                     function_name = ai_response.function_call.name
                     function_args = json.loads(ai_response.function_call.arguments)
-                    args_dict = dict()
-                    if function_name in ['calculate_sip_roi','get_stock_price', 'plot_stock_price', 'calculate_RSI', 'calculate_MACD']:
-                        args_dict = {'ticker': function_args.get('ticker') if 'ticker' in function_args else function_args.get('ticker')} #Use ticker if present, else use ticker.
+
+                    args_dict = {}
+                    if function_name in [
+                        'calculate_sip_roi',
+                        'get_stock_price',
+                        'plot_stock_price',
+                        'calculate_RSI',
+                        'calculate_MACD'
+                    ]:
+                        args_dict = {'ticker': function_args.get('ticker')}
                     elif function_name in ['calculate_SMA', 'calculate_EMA']:
-                        args_dict = {'ticker': function_args.get('ticker'), 'window': function_args.get('window')}
+                        args_dict = {
+                            'ticker': function_args.get('ticker'),
+                            'window': function_args.get('window')
+                        }
+
                     function_to_call = available_functions[function_name]
                     function_response = function_to_call(**args_dict)
 
+                    # Display results
                     if function_name == 'plot_stock_price':
                         st.image('stock.png')
                     elif function_name == 'calculate_sip_roi':
-                        st.markdown(function_response.replace('\n', '<br>'), unsafe_allow_html=True) #Display roi result correctly.
-                        st.session_state.chat_log.append({'role':'assistant', 'content': function_response})
+                        st.markdown(
+                            function_response.replace('\n', '<br>'),
+                            unsafe_allow_html=True
+                        )
+                        st.session_state.chat_log.append({'role': 'assistant', 'content': function_response})
                     else:
-                        combined_content = function_response  # Start with the function response.
-                        if ai_response.content:  # Check if ai_response.content is not None.
+                        combined_content = function_response
+                        if ai_response.content:
                             combined_content = f"{ai_response.content}\n{function_response}"
-                        combined_response = {
-                                'role': 'assistant',
-                                'content': combined_content
-                        }
-                        st.session_state.chat_log.append(combined_response)
-                        st.chat_message('assistant').markdown(combined_response['content'])
+                        st.session_state.chat_log.append({'role': 'assistant', 'content': combined_content})
                 else:
+                    # Plain text response
                     st.session_state.chat_log.append(dict(ai_response))
-                    st.chat_message('assistant').markdown(ai_response.content)
+
             except Exception as e:
                 st.error(f"An error occurred: {e}")
 
-# --- Main App ---
+            st.rerun()
+
+        elif reset_clicked:
+            st.session_state.chat_log = [{"role": "system", "content": botsystem.prompt}]
+            st.rerun()
+
 def main():
-    """Main function to run the Streamlit app."""
-    model_choice = st.selectbox("Select AI Model:", ["Gemini", "OpenAI"])
-    initialize_session_state(model_choice)
-    api_key, llm, model_name = configure_models(model_choice)
-    display_title_bar()
-    display_chat_messages()
-    handle_user_input(api_key, llm, model_name)
+    st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
+
+    initialize_session_state()
+    api_key, llm, model_name = configure_models(st.session_state.model_choice)
+
+    # Sidebar for tab navigation
+    sidebar_nav()
+
+    # Render content based on selected tab
+    tab = st.session_state.selected_tab
+    if tab == "Stockbot":
+        show_chatbot_page(api_key, llm, model_name)
+    elif tab == "Strategies":
+        st.title("Strategies")
+        st.write("Here you can find various stock trading strategies.")
+    elif tab == "Analysis":
+        st.title("Analysis")
+        st.write("Stock analysis tools and data.")
+    elif tab == "News":
+        st.title("News")
+        st.write("Latest stock news and updates.")
+    elif tab == "Picks":
+        st.title("Picks")
+        st.write("Curated stock picks and recommendations.")
+    elif tab == "Options":
+        st.title("Options")
+        st.write("Options trading tools and information.")
 
 if __name__ == "__main__":
     main()
