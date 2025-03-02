@@ -1,8 +1,14 @@
 import streamlit as st
 import os
 from dotenv import load_dotenv
-import Chatbot as sb_func  # Renamed from `import stock_helper as st_func`
 import botsystem
+import Chatbot as cb_func
+import Strategies as strat_func
+import Analysis as analys_func
+import Picks as picks_func
+import News as news_func
+import Options as options_func
+
 
 load_dotenv()
 
@@ -26,7 +32,7 @@ def configure_models(model_choice):
 def initialize_session_state():
     """Initializes session state variables if not already set."""
     if "selected_tab" not in st.session_state:
-        st.session_state.selected_tab = "Stockbot"
+        st.session_state.selected_tab = "ChatBot"
     if "chat_log" not in st.session_state:
         st.session_state.chat_log = [{"role": "system", "content": botsystem.prompt}]
     if "model_choice" not in st.session_state:
@@ -69,7 +75,7 @@ def sidebar_nav():
         unsafe_allow_html=True
     )
 
-    tabs = ["Stockbot", "Strategies", "Analysis", "News", "Picks", "Options"]
+    tabs = ["ChatBot", "Strategies", "Analysis", "News", "Picks", "Options"]
     for tab in tabs:
         if tab == st.session_state.selected_tab:
             # Highlighted tab (non-clickable)
@@ -94,23 +100,19 @@ def main():
 
     # Render content based on selected tab
     tab = st.session_state.selected_tab
-    if tab == "Stockbot":
-        sb_func.show_chatbot_page(st, api_key, llm, model_name)
+    if tab == "ChatBot":
+        cb_func.show_chatbot_page(st, api_key, llm, model_name)
     elif tab == "Strategies":
-        st.title("Strategies")
-        st.write("Here you can find various stock trading strategies.")
+        strat_func.show_strategies(st)
     elif tab == "Analysis":
-        st.title("Analysis")
-        st.write("Stock analysis tools and data.")
+        analys_func.show_analysis(st)
     elif tab == "News":
-        st.title("News")
-        st.write("Latest stock news and updates.")
+        news_func.show_news(st)
     elif tab == "Picks":
-        st.title("Picks")
-        st.write("Curated stock picks and recommendations.")
+        picks_func.show_picks(st)
     elif tab == "Options":
-        st.title("Options")
-        st.write("Options trading tools and information.")
+        options_func.show_options(st)
+
 
 if __name__ == "__main__":
     main()
