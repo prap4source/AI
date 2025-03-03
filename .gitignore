@@ -1,7 +1,7 @@
 .env
 /.venv
 /StockBotChat/__pycache__
-/StockBotChat/.streamlit
+/StockBotChat/streamlit
 /StockBotChat/.idea/
 /StockBotChat/stock.png
 /StockBotChat/mod
