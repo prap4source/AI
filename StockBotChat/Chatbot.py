@@ -238,12 +238,28 @@ functions = [
         },
     },
 ]
-
+# --- Display Functions ---
+def display_title_bar(st):
+    """Displays the title bar with a fancy design."""
+    st.markdown(
+        """
+        <style>
+        .title-bar {
+            background-color: #4A90E2;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="title-bar"><h1>✨ Stock Bot Chat 🤖</h1></div>', unsafe_allow_html=True)
 def show_chatbot_page(st, api_key, llm, model_name):
     """Displays the chatbot conversation on the main page, with user input at the bottom."""
-    st.title("Chatbot")
-    st.write("Below is the conversation with your stock bot. Enter your question and press **Send** or **Enter**.")
-
+    display_title_bar(st)
     # Display existing conversation
     for msg in st.session_state.chat_log:
         role = msg["role"]
