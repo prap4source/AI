@@ -1,7 +1,9 @@
-1) Install packages
-pip install -r requirements.txt
-2) For local run main_streamlit.py
-streamlit run main_streamlit.py
+1) For local deployment
+#cd StockBotChat
+#python3 -m venv streamlit
+#source streamlit/bin/activate
+#pip install -r requirements.txt
+#streamlit run main_streamlit.py
 Open browser "http://localhost:8501"
-3) For remote Deploy in streamlit
+3) For remote Deploy App in streamlit and link your github repo
  https://share.streamlit.io
