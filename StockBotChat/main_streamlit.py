@@ -8,6 +8,7 @@ import Analysis as analys_func
 import Picks as picks_func
 import News as news_func
 import Options as options_func
+import Markets as market_func
 
 
 load_dotenv()
@@ -32,7 +33,7 @@ def configure_models(model_choice):
 def initialize_session_state():
     """Initializes session state variables if not already set."""
     if "selected_tab" not in st.session_state:
-        st.session_state.selected_tab = "ChatBot"
+        st.session_state.selected_tab = "Markets"
     if "chat_log" not in st.session_state:
         st.session_state.chat_log = [{"role": "system", "content": botsystem.prompt}]
     if "model_choice" not in st.session_state:
@@ -75,7 +76,7 @@ def sidebar_nav():
         unsafe_allow_html=True
     )
 
-    tabs = ["ChatBot", "Strategies", "Analysis", "News", "Picks", "Options"]
+    tabs = ["Markets","ChatBot", "Strategies", "Analysis", "News", "Picks", "Options"]
     for tab in tabs:
         if tab == st.session_state.selected_tab:
             # Highlighted tab (non-clickable)
@@ -93,14 +94,14 @@ def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
 
     initialize_session_state()
-    api_key, llm, model_name = configure_models(st.session_state.model_choice)
-
     # Sidebar for tab navigation
     sidebar_nav()
-
     # Render content based on selected tab
     tab = st.session_state.selected_tab
-    if tab == "ChatBot":
+    if tab == "Markets":
+        market_func.show_sentiment(st)
+    elif tab == "ChatBot":
+        api_key, llm, model_name = configure_models(st.session_state.model_choice)
         cb_func.show_chatbot_page(st, api_key, llm, model_name)
     elif tab == "Strategies":
         strat_func.show_strategies(st)
