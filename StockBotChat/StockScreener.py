@@ -114,7 +114,9 @@ def fetch_stock_data(symbol, lookback_days, timeframe="1d"):
         interval = interval_map.get(timeframe, "1d")  # Default to "1d" if timeframe not found
         df = stock.history(start=start_ts, end=end_ts, interval=interval)
         if df.empty:
+            #print(f"No data fetched for {symbol} with lookback {lookback_days} days and timeframe {timeframe}")
             return None
+        #print(f"Fetched {len(df)} bars for {symbol} with lookback {lookback_days} days and timeframe {timeframe}")
         return df
     except Exception as e:
         print(f"Error fetching data for {symbol}: {str(e)}")
@@ -122,7 +124,25 @@ def fetch_stock_data(symbol, lookback_days, timeframe="1d"):
 
 def calculate_reversal_breakout(symbol, df, timeframe="1d"):
     """Calculate reversal breakout metrics based on MA and RSI."""
-    if df is None or len(df) < 21:  # Ensure enough data for 21-day SMA
+    # Adjust minimum required bars based on timeframe
+    sma_long_period = 21  # For 21-day SMA
+    if timeframe == "1 Hour":
+        # Estimate trading hours per day (e.g., 6.5 hours for US markets)
+        bars_per_day = 6.5
+        min_days = sma_long_period / bars_per_day
+        min_bars = sma_long_period
+    elif timeframe == "1 Day":
+        # Account for trading days (approx 252 trading days per year, so ~21 trading days for 30 calendar days)
+        min_bars = sma_long_period
+    elif timeframe == "1 Week":
+        min_bars = sma_long_period
+    elif timeframe == "1 Month":
+        min_bars = sma_long_period
+    else:
+        min_bars = sma_long_period  # Default
+
+    if df is None or len(df) < min_bars:
+        #print(f"Insufficient data for {symbol}: {len(df) if df is not None else 0} bars, need at least {min_bars}")
         return None
 
     # Calculate MAs
@@ -144,7 +164,7 @@ def calculate_reversal_breakout(symbol, df, timeframe="1d"):
     # Iterate through the DataFrame to find the first signal
     for idx in range(len(df)):
         window_df = df.iloc[:idx + 1]
-        if len(window_df) < 21:
+        if len(window_df) < min_bars:
             continue
 
         current_price = window_df["Close"].iloc[-1]
@@ -180,6 +200,7 @@ def calculate_reversal_breakout(symbol, df, timeframe="1d"):
             break
 
     if trend_found_date is None:
+        #print(f"No signal found for {symbol} within the lookback period")
         return None
 
     return {
@@ -218,7 +239,7 @@ def show_screen(st):
     with col3:
         condition = st.selectbox("Condition", ["Reversal Breakout"], index=0)  # Single condition for now
     with col4:
-        lookback_days = st.number_input("Lookback (days)", min_value=1, value=90, step=1)
+        lookback_days = st.selectbox("Lookback (days)", [1, 5, 30, 60, 90, 150, 300, 600], index=4)  # Default to 90
 
     # Fetch stock universe dynamically (only on button click)
     universe_symbols = []
@@ -259,7 +280,7 @@ def show_screen(st):
         st.subheader("📊 Screening Summary")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Trades: ", f"{total_trades}")
+            st.metric("Trades", f"{total_trades}")
         with col2:
             st.metric("% Winning", f"{winning_percentage:.2f}% ({winners}/{total_trades})")
         with col3:
