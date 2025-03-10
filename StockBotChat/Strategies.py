@@ -84,7 +84,9 @@ def calculate_sip_roi(ticker, start, end, monthly):
                 f"${close_today:,.2f}"
             ]
         })
+
         return results_df, None  # Return DataFrame and no error message
+
     except Exception as e:
         return None, f"❌ Error calculating SIP returns: {e}"
 
@@ -203,16 +205,22 @@ def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 
         else:
             st.error(message)
 
-
 def show_sip_returns(st, stock_symbol, start_date, end_date):
-    """Displays the SIP Returns calculation with stock symbol, start and end date passed."""
+    """Displays the SIP Returns calculation with a table output."""
     st.subheader("📊 SIP Returns Calculator")
     monthly_investment = st.number_input("Monthly Investment ($)", min_value=1, value=1000)
 
     if st.button("📈 Calculate SIP Returns", key="calculate_sip"):
         with st.spinner(f"🔄 Calculating SIP returns for {stock_symbol}..."):
-            sip_result = calculate_sip_roi(stock_symbol, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), monthly_investment)
-        st.markdown(sip_result, unsafe_allow_html=True)
+            results_df, error_message = calculate_sip_roi(
+                stock_symbol, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), monthly_investment
+            )
+
+        if error_message:
+            st.error(error_message)
+        else:
+            st.subheader("📊 SIP Investment Summary")
+            st.table(results_df)  # ✅ Use st.table() for clean formatting
 
 
 def show_strategies(st):
