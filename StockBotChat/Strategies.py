@@ -2,6 +2,7 @@ import streamlit as st
 import backtest
 import pine
 import paper
+import yfinance as yf
 from datetime import datetime, timedelta
 import helpers
 import plotly.express as px  # For visualization
@@ -9,6 +10,7 @@ import pandas as pd
 
 
 def apply_custom_css():
+    """Applies custom CSS to adjust layout and remove unnecessary padding."""
     st.markdown("""
         <style>
         .main .block-container { padding-left: 0 !important; padding-right: 0 !important; }
@@ -19,7 +21,7 @@ def apply_custom_css():
 
 
 def categorize_sell_reason(reason):
-    """Categorize the sell reason into a standardized label."""
+    """Categorizes sell reasons into a standardized label."""
     if "Stop Loss" in reason:
         return "Stop Loss"
     elif "RSI >" in reason:
@@ -53,12 +55,46 @@ def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 
             trades_summary_df, total_profit = backtest.run_backtest_rsi(
                 st,
                 stock_symbol, start_date.strftime("%Y-%m-%d"),
-                end_date.strftime("%Y-%m-%d"),params)
+                end_date.strftime("%Y-%m-%d"), params)
         st.success("✅ Backtest Completed")
 
         # Display Total Profit
         if total_profit is not None:
             st.markdown(f"### 💰 Total Profit: ${total_profit:.2f}")
+
+        # ✅ Win/Loss Summary (Now included after Total Profit)
+        closed_trades_df = trades_summary_df[trades_summary_df["Sell Date"] != "Open"]
+        if not closed_trades_df.empty:
+            total_trades = len(closed_trades_df)
+            winners = len(closed_trades_df[closed_trades_df["Profit ($)"] > 0])
+            win_percentage = (winners / total_trades) * 100 if total_trades > 0 else 0
+            reason_counts = closed_trades_df["Sell Reason"].apply(categorize_sell_reason).value_counts()
+            reason_percentages = (reason_counts / total_trades * 100).round(2)
+
+            st.subheader("📊 Win/Loss Summary")
+            col1, col2 = st.columns([1, 2])
+
+            with col1:
+                st.write("**Trade Metrics:**")
+                st.write(f"Winning Trades: {winners}/{total_trades}")
+                st.write(f"Win Rate: {win_percentage:.2f}%")
+                if not reason_counts.empty:
+                    st.write("**Sell Reason Distribution:**")
+                    for reason, count in reason_counts.items():
+                        st.write(f"{reason}: {count} trades")
+
+            with col2:
+                if not reason_percentages.empty:
+                    fig = px.pie(
+                        names=reason_percentages.index,
+                        values=reason_percentages.values,
+                        title="Distribution of Sell Reasons",
+                        color=reason_percentages.index,
+                        color_discrete_map={"Stop Loss": "#EF553B", "RSI > 70": "#00CC96",
+                                            "Profit Target": "#AB63FA", "Other": "#636EFA"}
+                    )
+                    fig.update_traces(textinfo="percent+label", textposition="inside")
+                    st.plotly_chart(fig, use_container_width=True)
 
         # Display Trade History Table
         if trades_summary_df is not None and not trades_summary_df.empty:
@@ -77,56 +113,60 @@ def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 
                 use_container_width=True
             )
 
-            # Calculate Win/Loss Percentages and Sell Reasons
-            closed_trades_df = trades_summary_df[trades_summary_df["Sell Date"] != "Open"]
-            if not closed_trades_df.empty:
-                total_trades = len(closed_trades_df)
-                winners = len(closed_trades_df[closed_trades_df["Profit ($)"] > 0])
-                win_percentage = (winners / total_trades) * 100 if total_trades > 0 else 0
-                reason_counts = closed_trades_df["Sell Reason"].apply(categorize_sell_reason).value_counts()
-                reason_percentages = (reason_counts / total_trades * 100).round(2)
-
-                st.subheader("📊 Win/Loss Summary")
-                col1, col2 = st.columns([1, 2])
-
-                with col1:
-                    st.write("**Trade Metrics:**")
-                    st.write(f"Winning Trades: {winners}/{total_trades}")
-                    st.write(f"Win Rate: {win_percentage:.2f}%")
-                    if not reason_counts.empty:
-                        st.write("**Sell Reason Distribution:**")
-                        for reason, count in reason_counts.items():
-                            st.write(f"{reason}: {count} trades")
-
-                with col2:
-                    if not reason_percentages.empty:
-                        fig = px.pie(
-                            names=reason_percentages.index,
-                            values=reason_percentages.values,
-                            title="Distribution of Sell Reasons",
-                            color=reason_percentages.index,
-                            color_discrete_map={"Stop Loss": "#EF553B", "RSI > 70": "#00CC96",
-                                                "Profit Target": "#AB63FA", "Other": "#636EFA"}
-                        )
-                        fig.update_traces(textinfo="percent+label", textposition="inside")
-                        st.plotly_chart(fig, use_container_width=True)
-
-        else:
-            st.warning("No trades executed.")
-
     if col2.button("📜 Generate Pine Script", key="generate_pine"):
         pine_script = pine.generate_rsi_strategy("RSI", params)
         st.code(pine_script, language="pinescript")
 
     if col3.button("📈 Execute Paper Trade", key="execute_paper_trade"):
         success, message = paper.execute_paper_trade(
-            stock_symbol, timeframe, "RSI",params,
+            stock_symbol, timeframe, "RSI", params,
             backtest.run_backtest_rsi
         )
         if success:
             st.success(message)
         else:
             st.error(message)
+
+def calculate_sip_roi(ticker, start, end, monthly):
+    """
+    Calculates the SIP (Systematic Investment Plan) returns.
+    """
+    try:
+        data = yf.download(ticker, start, end)
+        if data.empty:
+            return f"⚠️ No data found for {ticker} in the given period."
+
+        monthly_data = data.resample('MS').first()
+        monthly_closes = monthly_data['Close'].squeeze()
+        monthly_closes = pd.to_numeric(monthly_closes, errors='coerce')
+
+        total_investment = 0
+        shares_held = 0
+
+        for _, close_price in zip(monthly_closes.index, monthly_closes):
+            total_investment += monthly
+            shares_bought = monthly / close_price
+            shares_held += shares_bought
+
+        close_today = yf.Ticker(ticker).info.get("regularMarketPreviousClose", monthly_closes.iloc[-1])
+        final_value_today = shares_held * close_today
+        roi_percentage = ((final_value_today - total_investment) / total_investment) * 100
+
+        return f"💰 **Total Investment:** ${total_investment:,.2f}\n📊 **Final Portfolio Value:** ${final_value_today:,.2f}\n📈 **SIP Growth:** {roi_percentage:.2f}%"
+
+    except Exception as e:
+        return f"❌ Error calculating SIP returns: {e}"
+
+
+def show_sip_returns(st, ticker, start_date, end_date):
+    """Displays the SIP Returns calculation with start and end date passed."""
+    st.subheader("📊 SIP Returns Calculator")
+    monthly_investment = st.number_input("Monthly Investment ($)", min_value=1, value=1000)
+
+    if st.button("📈 Calculate SIP Returns"):
+        with st.spinner(f"🔄 Calculating SIP returns for {ticker}..."):
+            sip_result = calculate_sip_roi(ticker, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), monthly_investment)
+        st.markdown(sip_result, unsafe_allow_html=True)
 
 
 def show_strategies(st):
@@ -140,29 +180,22 @@ def show_strategies(st):
     default_start_date = datetime(2023, 1, 1)
     default_end_date = datetime.today() - timedelta(days=1)
 
-    # Input UI (Organized in 2 Rows)
     col1, col2, col3 = st.columns(3)
     with col1:
         stock_symbol = st.text_input("Stock Symbol", "NVDA")
-        is_valid, message = helpers.validate_input(stock_symbol)
-        if not is_valid and stock_symbol:
-            st.error(message)
     with col2:
         start_date = st.date_input("Start Date", default_start_date)
     with col3:
         end_date = st.date_input("End Date", default_end_date)
 
-    col4, col5, col6, col7 = st.columns(4)
+    col4, col5 = st.columns(2)
     with col4:
         timeframe = st.selectbox("Timeframe", ["1Day", "1Hour", "15Min", "5Min"], index=0)
     with col5:
         num_stocks = st.number_input("Trade Size", min_value=1, value=100, step=1)
-    with col6:
-        stop_loss_str = st.selectbox("Stop Loss (%)", ["10%", "15%", "25%", "50%", "None"], index=1)
-        profit_target_str = st.selectbox("Profit Target (%)", ["10%", "15%", "25%", "50%", "None"], index=2)
 
-    stop_loss = None if stop_loss_str == "None" else int(stop_loss_str.replace("%", "")) / 100
-    profit_target = None if profit_target_str == "None" else int(profit_target_str.replace("%", "")) / 100
+    with st.expander("📉 RSI Strategy", expanded=False):
+        rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 0.10, 0.30)
 
-    with st.expander("📉 RSI Strategy", expanded=True):
-        rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss, profit_target)
+    with st.expander("💰 SIP Returns Calculator", expanded=False):
+        show_sip_returns(st, stock_symbol, start_date, end_date)

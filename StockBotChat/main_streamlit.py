@@ -6,7 +6,6 @@ import botsystem
 # Importing individual modules
 import Chatbot as cb_func
 import Strategies as strat_func
-import Analysis as analys_func
 import Picks as picks_func
 import News as news_func
 import Options as options_func
@@ -112,10 +111,9 @@ def sidebar_nav():
     tabs = {
         "Markets": "📊",
         "ChatBot": "🤖",
-        "Strategies": "📈",
-        "Analysis": "🔍",
+        "Stock Screener": "⭐",
+        "Strategy Lab": "📈",
         "News": "📰",
-        "Picks": "⭐",
         "Options": "💹",
     }
 
@@ -147,14 +145,12 @@ def main():
     elif tab == "ChatBot":
         api_key, llm, model_name = configure_models(st.session_state.model_choice)
         cb_func.show_chatbot_page(st, api_key, llm, model_name)
-    elif tab == "Strategies":
+    elif tab == "Stock Screener":
+        picks_func.show_picks(st)
+    elif tab == "Strategy Lab":
         strat_func.show_strategies(st)
-    elif tab == "Analysis":
-        analys_func.show_analysis(st)
     elif tab == "News":
         news_func.show_news(st)
-    elif tab == "Picks":
-        picks_func.show_picks(st)
     elif tab == "Options":
         options_func.show_options(st)
 
