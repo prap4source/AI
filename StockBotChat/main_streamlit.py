@@ -6,7 +6,7 @@ import botsystem
 # Importing individual modules
 import Chatbot as cb_func
 import Strategies as strat_func
-import Picks as picks_func
+import StockScreener as screener_func
 import News as news_func
 import Options as options_func
 import Markets as market_func
@@ -146,7 +146,7 @@ def main():
         api_key, llm, model_name = configure_models(st.session_state.model_choice)
         cb_func.show_chatbot_page(st, api_key, llm, model_name)
     elif tab == "Stock Screener":
-        picks_func.show_picks(st)
+        screener_func.show_picks(st)
     elif tab == "Strategy Lab":
         strat_func.show_strategies(st)
     elif tab == "News":
