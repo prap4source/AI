@@ -1,36 +1,22 @@
 import streamlit as st
 import backtest
+import pine
+import paper
 from datetime import datetime, timedelta
 import helpers
-import plotly.express as px  # Import Plotly for the pie chart
+import plotly.express as px  # For visualization
 import pandas as pd
-import sys
+
 
 def apply_custom_css():
     st.markdown("""
         <style>
-        /* Remove padding from the main container */
-        .main .block-container {
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            padding-top: 0 !important;
-            padding-bottom: 0 !important;
-            max-width: 100 !important;
-        }
-        /* Remove padding from all containers */
-        div[data-testid="stVerticalBlock"] > div {
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-        }
-        /* Ensure columns have no gaps */
-        div[data-testid="column"] {
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
-        }
+        .main .block-container { padding-left: 0 !important; padding-right: 0 !important; }
+        div[data-testid="stVerticalBlock"] > div { padding-left: 0 !important; padding-right: 0 !important; }
+        div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !important; }
         </style>
     """, unsafe_allow_html=True)
+
 
 def categorize_sell_reason(reason):
     """Categorize the sell reason into a standardized label."""
@@ -42,39 +28,41 @@ def categorize_sell_reason(reason):
         return "Profit Target"
     return "Other"
 
-def rsi(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss, profit_target):
+
+def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss, profit_target):
     """
     Runs the RSI backtest strategy with user-configurable SL & Profit Target.
     """
-    st.write("This strategy Buys when RSI is between 40-50 and Sells when RSI hits 70")
+    st.write("This strategy Buys when RSI crosses over 40 and Sells when RSI hits 70")
 
     # RSI Period Input
     rsi_period = st.slider("RSI Period", 5, 30, 14)
+    params = {
+        "rsi_period": rsi_period,
+        "qty": num_stocks,
+        "timeframe": timeframe,
+        "stop_loss": stop_loss,
+        "profit_target": profit_target
+    }
 
-    # Run Backtest Button
-    if st.button("📉 Run Backtest", key="run_backtest"):
+    # ✅ Button Row (Backtest, Pine Script, Paper Trade)
+    col1, col2, col3 = st.columns(3)
+
+    if col1.button("📉 Run Backtest", key="run_backtest"):
         with st.spinner(f"🔄 Running Backtest for {stock_symbol}..."):
-            trades_summary_df, total_profit = backtest.run_backtest_rsi(st,
+            trades_summary_df, total_profit = backtest.run_backtest_rsi(
+                st,
                 stock_symbol, start_date.strftime("%Y-%m-%d"),
-                end_date.strftime("%Y-%m-%d"),
-                {
-                    "rsi_period": rsi_period,
-                    "qty": num_stocks,
-                    "timeframe": timeframe,
-                    "stop_loss": stop_loss,
-                    "profit_target": profit_target
-                }
-            )
+                end_date.strftime("%Y-%m-%d"),params)
         st.success("✅ Backtest Completed")
 
-        # Display Total Profit in a single line
+        # Display Total Profit
         if total_profit is not None:
             st.markdown(f"### 💰 Total Profit: ${total_profit:.2f}")
 
         # Display Trade History Table
         if trades_summary_df is not None and not trades_summary_df.empty:
             st.subheader("📜 Trade History")
-            # Define custom formatters to handle None values
             format_dict = {
                 "Buy Price": lambda x: f"${x:.2f}" if x is not None else "N/A",
                 "Sell Price": lambda x: f"${x:.2f}" if x is not None else "N/A",
@@ -88,25 +76,18 @@ def rsi(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss
                 trades_summary_df.style.format(format_dict),
                 use_container_width=True
             )
-            # Calculate Win/Loss Percentages and Sell Reasons (Exclude Open Positions)
+
+            # Calculate Win/Loss Percentages and Sell Reasons
             closed_trades_df = trades_summary_df[trades_summary_df["Sell Date"] != "Open"]
             if not closed_trades_df.empty:
                 total_trades = len(closed_trades_df)
                 winners = len(closed_trades_df[closed_trades_df["Profit ($)"] > 0])
-                losers = len(closed_trades_df[closed_trades_df["Profit ($)"] <= 0])
-
-                # Calculate win/loss percentages
                 win_percentage = (winners / total_trades) * 100 if total_trades > 0 else 0
-                loss_percentage = (losers / total_trades) * 100 if total_trades > 0 else 0
-
-                # Categorize sell reasons
-                closed_trades_df["Sell Category"] = closed_trades_df["Sell Reason"].apply(categorize_sell_reason)
-                reason_counts = closed_trades_df["Sell Category"].value_counts()  # Fixed typo here
+                reason_counts = closed_trades_df["Sell Reason"].apply(categorize_sell_reason).value_counts()
                 reason_percentages = (reason_counts / total_trades * 100).round(2)
 
-                # Display Win/Loss Summary with Pie Chart Side by Side
                 st.subheader("📊 Win/Loss Summary")
-                col1, col2 = st.columns([1, 2])  # Left column wider for text, right for chart
+                col1, col2 = st.columns([1, 2])
 
                 with col1:
                     st.write("**Trade Metrics:**")
@@ -118,36 +99,36 @@ def rsi(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss
                             st.write(f"{reason}: {count} trades")
 
                 with col2:
-                    # Create Pie Chart with Sell Reasons
                     if not reason_percentages.empty:
                         fig = px.pie(
                             names=reason_percentages.index,
                             values=reason_percentages.values,
                             title="Distribution of Sell Reasons",
                             color=reason_percentages.index,
-                            color_discrete_map={
-                                "Stop Loss": "#EF553B",
-                                "RSI > 70": "#00CC96",
-                                "Profit Target": "#AB63FA",
-                                "Other": "#636EFA"
-                            }
+                            color_discrete_map={"Stop Loss": "#EF553B", "RSI > 70": "#00CC96",
+                                                "Profit Target": "#AB63FA", "Other": "#636EFA"}
                         )
                         fig.update_traces(textinfo="percent+label", textposition="inside")
-                        fig.update_layout(showlegend=True)
                         st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.write("No sell reasons to display.")
-            else:
-                st.warning("No closed trades to analyze for win/loss percentage.")
 
         else:
-            if trades_summary_df is None:
-                st.error("Failed to fetch historical data for the selected symbol and date range.")
-            else:
-                st.warning("No trades executed.")
+            st.warning("No trades executed.")
 
-        # Placeholder for Chart
-        st.subheader("📈 Price Chart Coming Soon!")
+    if col2.button("📜 Generate Pine Script", key="generate_pine"):
+        pine_script = pine.generate_rsi_strategy("RSI", params)
+        st.code(pine_script, language="pinescript")
+
+    if col3.button("📈 Execute Paper Trade", key="execute_paper_trade"):
+        success, message = paper.execute_paper_trade(
+            stock_symbol, timeframe, "RSI",params,
+            backtest.run_backtest_rsi
+        )
+        if success:
+            st.success(message)
+        else:
+            st.error(message)
+
+
 def show_strategies(st):
     """
     Displays the trading strategy UI in Streamlit.
@@ -177,28 +158,11 @@ def show_strategies(st):
     with col5:
         num_stocks = st.number_input("Trade Size", min_value=1, value=100, step=1)
     with col6:
-        strategy_selected = st.selectbox("Select Strategy", ["RSI Strategy", "Momentum", "Breakout"], index=0)
-    with col7:
         stop_loss_str = st.selectbox("Stop Loss (%)", ["10%", "15%", "25%", "50%", "None"], index=1)
         profit_target_str = st.selectbox("Profit Target (%)", ["10%", "15%", "25%", "50%", "None"], index=2)
 
-    # Convert Dropdown Selection to Decimal (or None)
     stop_loss = None if stop_loss_str == "None" else int(stop_loss_str.replace("%", "")) / 100
     profit_target = None if profit_target_str == "None" else int(profit_target_str.replace("%", "")) / 100
 
-    # Only proceed if the stock symbol is valid
-    if not is_valid and stock_symbol:
-        st.stop()
-
-    st.write("")  # Spacer
-
-    # RSI Strategy Inputs
-    if strategy_selected == "RSI Strategy":
-        with st.expander("📉 RSI Strategy", expanded=True):
-            rsi(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss, profit_target)
-    elif strategy_selected == "Momentum":
-        with st.expander("🚀 Momentum Strategy", expanded=True):
-            st.write("Coming soon!")
-    elif strategy_selected == "Breakout":
-        with st.expander("📈 Breakout Strategy", expanded=True):
-            st.write("Coming soon!")
+    with st.expander("📉 RSI Strategy", expanded=True):
+        rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss, profit_target)

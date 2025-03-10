@@ -7,4 +7,5 @@
 /StockBotChat/mod
 /.idea
 /StockBotChat/test.py
+/StockBotChat/tickers.py
 

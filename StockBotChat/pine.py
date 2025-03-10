@@ -1,6 +1,6 @@
 from datetime import datetime
 
-def generate_pine_script(strategy_type, params):
+def generate_rsi_strategy(strategy_type, params):
     """
     Generate TradingView Pine Script for a given strategy with configurable inputs.
 
@@ -11,11 +11,19 @@ def generate_pine_script(strategy_type, params):
     Returns:
         str: The generated Pine Script code.
     """
-    # Convert datetime objects to Unix timestamps (milliseconds) for Pine Script
+    # ✅ Convert start_date & end_date to datetime if they are date objects
     start_date = params.get("start_date", datetime(2023, 1, 1))
     end_date = params.get("end_date", datetime.now())
-    start_timestamp = int(start_date.timestamp() * 1000)  # Convert to milliseconds
-    end_timestamp = int(end_date.timestamp() * 1000)      # Convert to milliseconds
+
+    if isinstance(start_date, datetime):  # Ensure it's a datetime object
+        start_timestamp = int(start_date.timestamp() * 1000)  # Convert to milliseconds
+    else:
+        start_timestamp = int(datetime.combine(start_date, datetime.min.time()).timestamp() * 1000)
+
+    if isinstance(end_date, datetime):
+        end_timestamp = int(end_date.timestamp() * 1000)
+    else:
+        end_timestamp = int(datetime.combine(end_date, datetime.min.time()).timestamp() * 1000)
 
     if strategy_type == "RSI":
         # Extract parameters with default values
@@ -23,7 +31,7 @@ def generate_pine_script(strategy_type, params):
         stop_loss = params.get("stop_loss", 0.15)  # Default to 15% if not provided
         profit_target = params.get("profit_target", 0.15)  # Default to 15% if not provided
 
-        # Generate Pine Script with inputs
+        # ✅ Generate Pine Script with inputs
         pine_script = f"""//@version=5
 strategy("RSI Strategy", overlay=false)
 
