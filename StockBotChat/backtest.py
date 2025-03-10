@@ -4,7 +4,7 @@ import alpaca_trade_api as tradeapi
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
-import sys
+
 
 # Load API Keys
 load_dotenv()

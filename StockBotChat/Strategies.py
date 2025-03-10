@@ -19,7 +19,6 @@ def apply_custom_css():
         </style>
     """, unsafe_allow_html=True)
 
-
 def categorize_sell_reason(reason):
     """Categorizes sell reasons into a standardized label."""
     if "Stop Loss" in reason:
@@ -29,6 +28,83 @@ def categorize_sell_reason(reason):
     elif "Profit Target" in reason:
         return "Profit Target"
     return "Other"
+
+def calculate_sip_roi(ticker, start, end, monthly):
+    """
+    Calculates the SIP (Systematic Investment Plan) returns and formats the output correctly.
+    """
+    try:
+        # Convert start and end dates to datetime
+        start_date = datetime.strptime(start, "%Y-%m-%d")
+        end_date = datetime.strptime(end, "%Y-%m-%d")
+
+        # Calculate number of months invested
+        num_months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
+
+        # Fetch historical stock data
+        data = yf.download(ticker, start, end)
+        if data.empty:
+            return None, f"⚠️ No data found for {ticker} in the given period."
+
+        # Resample to monthly frequency
+        monthly_data = data.resample('MS').first()
+        monthly_closes = monthly_data['Close'].squeeze()
+        monthly_closes = pd.to_numeric(monthly_closes, errors='coerce')
+
+        total_investment = 0
+        shares_held = 0
+
+        # Simulate SIP investment over time
+        for _, close_price in zip(monthly_closes.index, monthly_closes):
+            total_investment += monthly
+            shares_bought = monthly / close_price
+            shares_held += shares_bought
+
+        # Get latest stock price
+        close_today = yf.Ticker(ticker).info.get("regularMarketPreviousClose", monthly_closes.iloc[-1])
+        final_value_today = shares_held * close_today
+        roi_percentage = ((final_value_today - total_investment) / total_investment) * 100
+
+        # Create a properly structured DataFrame
+        results_df = pd.DataFrame({
+            "Metric": [
+                "Stock Symbol",
+                "Investment Period (Months)",
+                "Total Investment ($)",
+                "Final Portfolio Value ($)",
+                "SIP Growth (%)",
+                "Stock Price at Last Investment ($)"
+            ],
+            "Value": [
+                ticker,
+                num_months,
+                f"${total_investment:,.2f}",
+                f"${final_value_today:,.2f}",
+                f"{roi_percentage:.2f}%",
+                f"${close_today:,.2f}"
+            ]
+        })
+        return results_df, None  # Return DataFrame and no error message
+    except Exception as e:
+        return None, f"❌ Error calculating SIP returns: {e}"
+
+# ✅ **Use Callbacks to Handle Button Clicks**
+def run_backtest_callback():
+    st.session_state.run_backtest = True
+    st.session_state.generate_pine = False
+    st.session_state.execute_paper_trade = False
+
+
+def generate_pine_callback():
+    st.session_state.run_backtest = False
+    st.session_state.generate_pine = True
+    st.session_state.execute_paper_trade = False
+
+
+def execute_paper_trade_callback():
+    st.session_state.run_backtest = False
+    st.session_state.generate_pine = False
+    st.session_state.execute_paper_trade = True
 
 
 def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, stop_loss, profit_target):
@@ -47,21 +123,22 @@ def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 
         "profit_target": profit_target
     }
 
-    # ✅ Button Row (Backtest, Pine Script, Paper Trade)
+    # ✅ **Button Row with Callbacks**
     col1, col2, col3 = st.columns(3)
+    col1.button("📉 Run Backtest", key="run_backtest_btn", on_click=run_backtest_callback)
+    col2.button("📜 Generate Pine Script", key="generate_pine_btn", on_click=generate_pine_callback)
+    col3.button("📈 Execute Paper Trade", key="execute_paper_trade_btn", on_click=execute_paper_trade_callback)
 
-    if col1.button("📉 Run Backtest", key="run_backtest"):
+    # ✅ **Execute logic based on which button was clicked**
+    if st.session_state.get("run_backtest", False):
         with st.spinner(f"🔄 Running Backtest for {stock_symbol}..."):
             trades_summary_df, total_profit = backtest.run_backtest_rsi(
                 st,
                 stock_symbol, start_date.strftime("%Y-%m-%d"),
                 end_date.strftime("%Y-%m-%d"), params)
         st.success("✅ Backtest Completed")
-
-        # Display Total Profit
-        if total_profit is not None:
-            st.markdown(f"### 💰 Total Profit: ${total_profit:.2f}")
-
+        # Total Profit
+        st.markdown(f"### 💰 Total Profit: ${total_profit:.2f}")
         # ✅ Win/Loss Summary (Now included after Total Profit)
         closed_trades_df = trades_summary_df[trades_summary_df["Sell Date"] != "Open"]
         if not closed_trades_df.empty:
@@ -95,7 +172,6 @@ def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 
                     )
                     fig.update_traces(textinfo="percent+label", textposition="inside")
                     st.plotly_chart(fig, use_container_width=True)
-
         # Display Trade History Table
         if trades_summary_df is not None and not trades_summary_df.empty:
             st.subheader("📜 Trade History")
@@ -113,11 +189,11 @@ def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 
                 use_container_width=True
             )
 
-    if col2.button("📜 Generate Pine Script", key="generate_pine"):
+    if st.session_state.get("generate_pine", False):
         pine_script = pine.generate_rsi_strategy("RSI", params)
         st.code(pine_script, language="pinescript")
 
-    if col3.button("📈 Execute Paper Trade", key="execute_paper_trade"):
+    if st.session_state.get("execute_paper_trade", False):
         success, message = paper.execute_paper_trade(
             stock_symbol, timeframe, "RSI", params,
             backtest.run_backtest_rsi
@@ -127,45 +203,15 @@ def rsi_strategy(st, stock_symbol, start_date, end_date, timeframe, num_stocks, 
         else:
             st.error(message)
 
-def calculate_sip_roi(ticker, start, end, monthly):
-    """
-    Calculates the SIP (Systematic Investment Plan) returns.
-    """
-    try:
-        data = yf.download(ticker, start, end)
-        if data.empty:
-            return f"⚠️ No data found for {ticker} in the given period."
 
-        monthly_data = data.resample('MS').first()
-        monthly_closes = monthly_data['Close'].squeeze()
-        monthly_closes = pd.to_numeric(monthly_closes, errors='coerce')
-
-        total_investment = 0
-        shares_held = 0
-
-        for _, close_price in zip(monthly_closes.index, monthly_closes):
-            total_investment += monthly
-            shares_bought = monthly / close_price
-            shares_held += shares_bought
-
-        close_today = yf.Ticker(ticker).info.get("regularMarketPreviousClose", monthly_closes.iloc[-1])
-        final_value_today = shares_held * close_today
-        roi_percentage = ((final_value_today - total_investment) / total_investment) * 100
-
-        return f"💰 **Total Investment:** ${total_investment:,.2f}\n📊 **Final Portfolio Value:** ${final_value_today:,.2f}\n📈 **SIP Growth:** {roi_percentage:.2f}%"
-
-    except Exception as e:
-        return f"❌ Error calculating SIP returns: {e}"
-
-
-def show_sip_returns(st, ticker, start_date, end_date):
-    """Displays the SIP Returns calculation with start and end date passed."""
+def show_sip_returns(st, stock_symbol, start_date, end_date):
+    """Displays the SIP Returns calculation with stock symbol, start and end date passed."""
     st.subheader("📊 SIP Returns Calculator")
     monthly_investment = st.number_input("Monthly Investment ($)", min_value=1, value=1000)
 
-    if st.button("📈 Calculate SIP Returns"):
-        with st.spinner(f"🔄 Calculating SIP returns for {ticker}..."):
-            sip_result = calculate_sip_roi(ticker, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), monthly_investment)
+    if st.button("📈 Calculate SIP Returns", key="calculate_sip"):
+        with st.spinner(f"🔄 Calculating SIP returns for {stock_symbol}..."):
+            sip_result = calculate_sip_roi(stock_symbol, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), monthly_investment)
         st.markdown(sip_result, unsafe_allow_html=True)
 
 

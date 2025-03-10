@@ -146,14 +146,13 @@ def main():
         api_key, llm, model_name = configure_models(st.session_state.model_choice)
         cb_func.show_chatbot_page(st, api_key, llm, model_name)
     elif tab == "Stock Screener":
-        screener_func.show_picks(st)
+        screener_func.show_screen(st)
     elif tab == "Strategy Lab":
         strat_func.show_strategies(st)
     elif tab == "News":
         news_func.show_news(st)
     elif tab == "Options":
         options_func.show_options(st)
-
 
 if __name__ == "__main__":
     main()

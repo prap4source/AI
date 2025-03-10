@@ -3,12 +3,9 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
 import pytz
-import numpy as np
-import requests
 
 # Set timezone to America/New_York
 ny_timezone = pytz.timezone("America/New_York")
-
 
 def apply_custom_css():
     """Apply custom CSS to ensure full-width layout and clean UI."""
@@ -39,48 +36,83 @@ def apply_custom_css():
         div[data-testid="stDataFrame"] {
             width: 100% !important;
         }
-        .backtest-section {
-            margin-top: 10px;
-            transition: opacity 0.3s ease;
+        /* Style the dataframe */
+        .stDataFrame {
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            overflow: hidden;
         }
-        .backtest-section.hidden {
-            display: none;
+        .stDataFrame thead th {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            padding: 10px;
+            border-bottom: 2px solid #45a049;
+        }
+        .stDataFrame tbody td {
+            text-align: center;
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+        .stDataFrame tbody tr:hover {
+            background-color: #f5f5f5;
         }
         </style>
     """, unsafe_allow_html=True)
 
-
 @st.cache_data
-def fetch_stock_universe(universe_name):
-    """Fetch stock universe dynamically from Wikipedia."""
+def fetch_stock_universe(category):
+    """Fetch stock universe based on market cap category from Wikipedia or a proxy."""
     try:
-        if universe_name == "S&P 500":
+        if category == "WatchList":
+            # Watchlist of Known stocks
+            tickers = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA", "DOCS","AVGO","NFLX","AWK","BJ","CCI"]
+        elif category == "Large Cap":
+            # Approximate Large Cap (market cap > $10B) using S&P 500 as a proxy
             url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-            df = pd.read_html(url)[0]  # First table contains the S&P 500 components
+            df = pd.read_html(url)[0]
             tickers = df["Symbol"].tolist()
-        elif universe_name == "Nasdaq 100":
-            url = "https://en.wikipedia.org/wiki/Nasdaq-100"
-            df = pd.read_html(url)[4]  # Nasdaq-100 components table (index may vary, adjust if needed)
-            tickers = df["Ticker"].tolist()
+        elif category == "Mid Cap":
+            # Use S&P MidCap 400 as a proxy for Mid Cap ($2B - $10B)
+            url = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
+            df = pd.read_html(url)[0]  # First table contains ticker symbols
+            tickers = df["Symbol"].tolist() if "Symbol" in df.columns else []
+            # Note: Market caps may range beyond $2B-$10B; filter if needed with real-time data
+        elif category == "Small Cap":
+            # Use S&P SmallCap 600 as a proxy for Small Cap (< $2B)
+            url = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"
+            df = pd.read_html(url)[0]  # First table contains ticker symbols
+            tickers = df["Symbol"].tolist() if "Symbol" in df.columns else []
+            # Note: Market caps may exceed $2B; filter if needed with real-time data
         else:
-            raise ValueError(f"Unsupported universe: {universe_name}")
+            raise ValueError(f"Unsupported category: {category}")
 
         # Clean tickers (e.g., replace '.' with '-' for Yahoo Finance compatibility)
         tickers = [ticker.replace('.', '-') for ticker in tickers]
         return tickers
     except Exception as e:
-        st.error(f"Error fetching stock universe for {universe_name}: {str(e)}")
+        st.error(f"Error fetching stock universe for {category}: {str(e)}")
         return []
 
-
 @st.cache_data
-def fetch_stock_data(symbol, start_date, end_date):
-    """Fetch historical stock data using yfinance."""
+def fetch_stock_data(symbol, lookback_days, timeframe="1d"):
+    """Fetch historical stock data using yfinance for the specified lookback and timeframe."""
     try:
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=lookback_days)
         stock = yf.Ticker(symbol)
         start_ts = ny_timezone.localize(datetime.combine(start_date, datetime.min.time()))
         end_ts = ny_timezone.localize(datetime.combine(end_date, datetime.min.time()))
-        df = stock.history(start=start_ts, end=end_ts, interval="1d")
+        # Map timeframe to yfinance intervals
+        interval_map = {
+            "1 Hour": "1h",
+            "1 Day": "1d",
+            "1 Week": "1wk",
+            "1 Month": "1mo"
+        }
+        interval = interval_map.get(timeframe, "1d")  # Default to "1d" if timeframe not found
+        df = stock.history(start=start_ts, end=end_ts, interval=interval)
         if df.empty:
             return None
         return df
@@ -88,228 +120,158 @@ def fetch_stock_data(symbol, start_date, end_date):
         print(f"Error fetching data for {symbol}: {str(e)}")
         return None
 
-
-def calculate_bollinger_bands(df, window=20, std_dev=2):
-    """Calculate Bollinger Bands."""
-    sma = df["Close"].rolling(window=window).mean()
-    std = df["Close"].rolling(window=window).std()
-    upper_band = sma + (std * std_dev)
-    lower_band = sma - (std * std_dev)
-    return upper_band, lower_band
-
-
-def calculate_macd(df):
-    """Calculate MACD and Signal Line with shorter periods."""
-    exp1 = df["Close"].ewm(span=9, adjust=False).mean()  # Shortened to 9-day
-    exp2 = df["Close"].ewm(span=21, adjust=False).mean()  # Shortened to 21-day
-    macd = exp1 - exp2
-    signal = macd.ewm(span=5, adjust=False).mean()  # Shortened to 5-day
-    return macd, signal
-
-
-def calculate_reversal_breakout(symbol, start_date, end_date, is_backtest=False):
-    """Calculate reversal breakout metrics and find the first trend detection date."""
-    momentum_start_date = start_date - timedelta(days=180) if not is_backtest else start_date
-    df = fetch_stock_data(symbol, momentum_start_date, end_date)
-    if df is None or len(df) < 180:
+def calculate_reversal_breakout(symbol, df, timeframe="1d"):
+    """Calculate reversal breakout metrics based on MA and RSI."""
+    if df is None or len(df) < 21:  # Ensure enough data for 21-day SMA
         return None
 
-    if is_backtest:
-        momentum_df = df[(df.index.date >= start_date) & (df.index.date <= end_date)]
-        if len(momentum_df) == 0:
-            return None
-    else:
-        momentum_df = df
+    # Calculate MAs
+    df["sma_8"] = df["Close"].rolling(window=8).mean()
+    df["sma_21"] = df["Close"].rolling(window=21).mean()
 
-    # Initialize variables for trend detection
+    # Calculate RSI
+    delta = df["Close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss.replace(0, 1e-10)  # Avoid division by zero
+    rsi = 100 - (100 / (1 + rs))
+
+    # Initialize variables
     trend_found_date = None
     price_at_trend_found = None
-    composite_score = 0
-    current_price = momentum_df["Close"].iloc[-1]
+    signal_type = None
 
-    # Iterate through the DataFrame to find the first date where the trend is detected
-    for idx in range(len(momentum_df)):
-        window_df = momentum_df.iloc[:idx + 1]
-        if len(window_df) < 21:  # Need enough data for SMA and MACD
+    # Iterate through the DataFrame to find the first signal
+    for idx in range(len(df)):
+        window_df = df.iloc[:idx + 1]
+        if len(window_df) < 21:
             continue
 
-        # Trend confirmation: Price above 8-day and 21-day SMA
-        window_df["sma_8"] = window_df["Close"].rolling(window=8).mean()
-        window_df["sma_21"] = window_df["Close"].rolling(window=21).mean()
-        price = window_df["Close"].iloc[-1]
+        current_price = window_df["Close"].iloc[-1]
         sma_8 = window_df["sma_8"].iloc[-1]
         sma_21 = window_df["sma_21"].iloc[-1]
-        is_above_mas = price > sma_8 > sma_21
+        current_rsi = rsi.iloc[-1] if idx > 0 else 0  # Ensure RSI is calculated
 
-        # MACD Bullish Cross (check last 3 days in the window)
-        macd, signal = calculate_macd(window_df)
-        macd_values = macd.tail(3)
-        signal_values = signal.tail(3)
-        is_bullish_cross = False
-        macd_score = 0
-        for i in range(1, len(macd_values)):
-            macd_prev, macd_curr = macd_values.iloc[i - 1], macd_values.iloc[i]
-            signal_prev, signal_curr = signal_values.iloc[i - 1], signal_values.iloc[i]
-            if macd_curr > signal_curr and macd_prev <= signal_prev:
-                is_bullish_cross = True
-                macd_score = 1
-                break
+        # Manual crossover implementation
+        price_cross_above_sma = (window_df["Close"].iloc[-1] > window_df["sma_8"].iloc[-1] and
+                                window_df["Close"].shift(1).iloc[-1] <= window_df["sma_8"].shift(1).iloc[-1]) if idx > 0 else False
+        sma_cross_above = (window_df["sma_8"].iloc[-1] > window_df["sma_21"].iloc[-1] and
+                          window_df["sma_8"].shift(1).iloc[-1] <= window_df["sma_21"].shift(1).iloc[-1]) if idx > 0 else False
+        rsi_above_30 = current_rsi > 30
+        rsi_increasing = (current_rsi > rsi.shift(1).iloc[-1]) if idx > 0 else False
 
-        # Bollinger Bands (within bands)
-        upper_band, lower_band = calculate_bollinger_bands(window_df)
-        upper = upper_band.iloc[-1]
-        lower = lower_band.iloc[-1]
-        is_within_bands = lower <= price <= upper
-        bollinger_score = 1 if is_within_bands else 0
+        buy_signal = price_cross_above_sma and sma_cross_above and rsi_above_30 and rsi_increasing
 
-        # Volume Score (no surge required)
-        volume_score = 1 if len(window_df) >= 20 else 0
+        # Manual crossunder implementation
+        price_cross_below_sma = (window_df["Close"].iloc[-1] < window_df["sma_8"].iloc[-1] and
+                                window_df["Close"].shift(1).iloc[-1] >= window_df["sma_8"].shift(1).iloc[-1]) if idx > 0 else False
+        sma_cross_below = (window_df["sma_8"].iloc[-1] < window_df["sma_21"].iloc[-1] and
+                          window_df["sma_8"].shift(1).iloc[-1] >= window_df["sma_21"].shift(1).iloc[-1]) if idx > 0 else False
+        rsi_below_70 = current_rsi < 70
+        rsi_decreasing = (current_rsi < rsi.shift(1).iloc[-1]) if idx > 0 else False
 
-        # Composite Score
-        composite_score = (
-                    0.4 * (1 if is_above_mas else 0) + 0.4 * macd_score + 0.2 * bollinger_score + 0.2 * volume_score)
+        sell_signal = price_cross_below_sma and sma_cross_below and rsi_below_70 and rsi_decreasing
 
-        # Check if trend is detected
-        if composite_score > 0:
+        # Check for first signal
+        if buy_signal or sell_signal:
             trend_found_date = window_df.index[-1].date()
-            price_at_trend_found = price
+            price_at_trend_found = current_price
+            signal_type = "Buy" if buy_signal else "Sell"
             break
 
-    # If no trend is found, return None
     if trend_found_date is None:
         return None
 
-    # Debug output
-    if st.session_state.get("debug_mode", False):
-        st.write(
-            f"Symbol: {symbol}, is_above_mas: {is_above_mas}, macd_score: {macd_score}, bollinger_score: {bollinger_score}, volume_score: {volume_score}, composite_score: {composite_score}, trend_found_date: {trend_found_date}")
-
-    # Liquidity metrics
-    avg_volume = momentum_df["Volume"].tail(30).mean() if len(momentum_df) >= 30 else 0
-
     return {
         "symbol": symbol,
-        "composite_score": composite_score,
-        "trend_detected": composite_score > 0,
-        "current_price": current_price,
-        "price_at_start": current_price if is_backtest else current_price,
-        # For consistency, use current price in backtest
+        "signal_type": signal_type,
         "trend_found_date": trend_found_date,
         "price_at_trend_found": price_at_trend_found,
-        "avg_volume": avg_volume
+        "current_price": df["Close"].iloc[-1]
     }
 
-
-def reversal_breakout_strategy(st, universe_symbols, start_date, end_date, is_backtest=False):
-    """Identify top 10 stocks using reversal breakout strategy."""
-    st.write(
-        "This strategy identifies top 10 stocks based on price above 8-day and 21-day MAs, MACD bullish cross, Bollinger Bands, and volume.")
+def screen_stocks(st, universe_symbols, lookback_days, timeframe):
+    """Screen stocks based on the reversal breakout strategy."""
+    st.write(f"**Reversal Breakout Strategy Overview:** This strategy identifies stocks experiencing a reversal breakout. A **Buy** signal occurs when the price crosses above the 8-day SMA, the 8-day SMA crosses above the 21-day SMA, and the RSI rises above 30 with an increasing trend. A **Sell** signal occurs when the price crosses below the 8-day SMA, the 8-day SMA crosses below the 21-day SMA, and the RSI drops below 70 with a decreasing trend. The analysis is performed over a {lookback_days}-day lookback period using a {timeframe} timeframe.")
 
     strategy_data = []
     with st.spinner(f"🔄 Analyzing {len(universe_symbols)} stocks..."):
         for symbol in universe_symbols:
-            data = calculate_reversal_breakout(
-                symbol,
-                start_date,
-                end_date,
-                is_backtest=is_backtest
-            )
-            if data and data["current_price"] >= 5 and data["avg_volume"] >= 500000 and data["composite_score"] > 0:
+            df = fetch_stock_data(symbol, lookback_days, timeframe)
+            data = calculate_reversal_breakout(symbol, df, timeframe)
+            if data:
                 strategy_data.append(data)
 
     return strategy_data
 
-
-def show_picks(st):
-    """Displays the stock picks UI in Streamlit."""
+def show_screen(st):
+    """Displays the stock screener UI in Streamlit."""
     apply_custom_css()
-    st.title("📈 Stock Picks")
+    st.title("📈 Stock Screener")
 
-    # Default date range
-    default_end_date = datetime.today().date()
-    default_start_date = default_end_date - timedelta(days=180)
-
-    # Input UI with debug option
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Input UI
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
-        universe = st.selectbox("Stock Universe", ["S&P 500", "Nasdaq 100"], index=0)
+        stock_category = st.selectbox("Stock Category", ["WatchList", "Large Cap", "Mid Cap", "Small Cap"], index=0)
     with col2:
-        enable_backtest = st.checkbox("Enable Backtest Mode", value=False)
+        timeframe = st.selectbox("Time Frame", ["1 Hour", "1 Day", "1 Week", "1 Month"], index=1)  # Default to "1 Day"
     with col3:
-        debug_mode = st.checkbox("Debug Mode", value=False)
-        st.session_state["debug_mode"] = debug_mode
+        condition = st.selectbox("Condition", ["Reversal Breakout"], index=0)  # Single condition for now
+    with col4:
+        lookback_days = st.number_input("Lookback (days)", min_value=1, value=90, step=1)
 
-    # Fetch stock universe dynamically
-    universe_symbols = fetch_stock_universe(universe)
-    if not universe_symbols:
-        st.error("Failed to fetch stock universe. Please try again later.")
-        return
+    # Fetch stock universe dynamically (only on button click)
+    universe_symbols = []
 
-    # Date inputs (hidden unless Backtest mode is enabled)
-    start_date = default_start_date
-    end_date = default_end_date
-    if enable_backtest:
-        with st.expander("Backtest Settings", expanded=True):
-            col4, col5 = st.columns(2)
-            with col4:
-                start_date = st.date_input("Start Date", default_start_date, key="start_date_input")
-            with col5:
-                end_date = st.date_input("End Date", default_end_date, key="end_date_input")
+    # Screen button to trigger analysis
+    if st.button("Screen"):
+        universe_symbols = fetch_stock_universe(stock_category)
+        if not universe_symbols:
+            st.error("Failed to fetch stock universe. Please try again.")
+            return
 
-    st.write("")  # Spacer
+        # Apply screening strategy
+        result = screen_stocks(st, universe_symbols, lookback_days, timeframe)
+        strategy_data = result if isinstance(result, list) else []
 
-    # Validate date range (only for Backtest mode)
-    if enable_backtest and start_date >= end_date:
-        st.error("Start Date must be before End Date.")
-        return
+        if not strategy_data:
+            st.error("No stocks meet the reversal breakout criteria.")
+            return
 
-    # Apply strategy
-    with st.expander("🚀 Reversal/Breakout Picks", expanded=True):
-        if st.button("Run Analysis"):
-            if enable_backtest:
-                result = reversal_breakout_strategy(st, universe_symbols, start_date, end_date, is_backtest=True)
-                st.write(f"**Date Range Used:** {start_date} to {end_date}")
-            else:
-                result = reversal_breakout_strategy(st, universe_symbols, default_end_date, default_end_date,
-                                                    is_backtest=False)
-                st.write("**Current Reversal/Breakout Stocks**")
+        strategy_df = pd.DataFrame(strategy_data)
+        # Calculate profit percentage (adjusted for Sell signals)
+        strategy_df["profit_percent"] = strategy_df.apply(
+            lambda row: ((row["current_price"] - row["price_at_trend_found"]) / row["price_at_trend_found"] * 100
+                        if row["signal_type"] == "Buy"
+                        else (row["price_at_trend_found"] - row["current_price"]) / row["price_at_trend_found"] * 100),
+            axis=1
+        ).round(2)
 
-            strategy_data = result if isinstance(result, list) else []
-            if not strategy_data:
-                st.error("No stocks meet the reversal breakout criteria.")
-                return
-
-            strategy_df = pd.DataFrame(strategy_data)
-            top_stocks = strategy_df.sort_values(by="composite_score", ascending=False).head(10)
-
-            st.subheader("📈 Top 10 Reversal/Breakout Stocks")
-            if enable_backtest:
-                format_dict = {
-                    "trend_detected": lambda x: "Yes" if x else "No",
-                    "current_price": lambda x: f"${x:.2f}",
-                    "price_at_start": lambda x: f"${x:.2f}",
-                    "price_at_trend_found": lambda x: f"${x:.2f}",
-                    "trend_found_date": lambda x: x.strftime("%Y-%m-%d"),
-                    "avg_volume": lambda x: f"{int(x):,}"
-                }
-                st.dataframe(
-                    top_stocks[["symbol", "trend_detected", "price_at_start", "current_price", "price_at_trend_found",
-                                "trend_found_date", "avg_volume"]].style.format(format_dict),
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                format_dict = {
-                    "composite_score": lambda x: f"{x:.2f}",
-                    "current_price": lambda x: f"${x:.2f}",
-                    "price_at_trend_found": lambda x: f"${x:.2f}",
-                    "trend_found_date": lambda x: x.strftime("%Y-%m-%d"),
-                    "avg_volume": lambda x: f"{int(x):,}"
-                }
-                st.dataframe(
-                    top_stocks[
-                        ["symbol", "composite_score", "current_price", "price_at_trend_found", "trend_found_date",
-                         "avg_volume"]].style.format(format_dict),
-                    use_container_width=True,
-                    hide_index=True
-                )
+        # Stylish table with custom headers
+        st.subheader("📈 Screened Stocks")
+        styled_df = strategy_df[["symbol", "signal_type", "price_at_trend_found", "current_price", "profit_percent", "trend_found_date"]]
+        styled_df.columns = ["Stock", "Signal", "Entry", "Current", "Profit", "Date"]
+        styled_df = styled_df.style\
+            .set_properties(**{'text-align': 'center'})\
+            .set_table_styles([
+                {'selector': 'th',
+                 'props': [('background-color', '#4CAF50'),
+                           ('color', 'white'),
+                           ('font-weight', 'bold'),
+                           ('text-align', 'center'),
+                           ('padding', '10px'),
+                           ('border-bottom', '2px solid #45a049')]},
+                {'selector': 'td',
+                 'props': [('padding', '8px'),
+                           ('border-bottom', '1px solid #ddd')]},
+                {'selector': 'tr:hover',
+                 'props': [('background-color', '#f5f5f5')]},
+            ])\
+            .apply(lambda row: ['color: #2e7d32; font-weight: bold;' if row["Profit"] > 0 else 'color: #d32f2f; font-weight: bold;' if row["Profit"] < 0 else ''], axis=1, subset=["Profit"])\
+            .format({
+                "Entry": lambda x: f"${x:.2f}",
+                "Current": lambda x: f"${x:.2f}",
+                "Profit": lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A",
+                "Date": lambda x: x.strftime("%Y-%m-%d")
+            })
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
