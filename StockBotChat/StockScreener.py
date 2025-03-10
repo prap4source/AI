@@ -67,7 +67,7 @@ def fetch_stock_universe(category):
     try:
         if category == "WatchList":
             # Watchlist of Known stocks
-            tickers = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA", "DOCS","AVGO","NFLX","AWK","BJ","CCI"]
+            tickers = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA", "DOCS", "AVGO", "NFLX", "AWK", "BJ", "CCI"]
         elif category == "Large Cap":
             # Approximate Large Cap (market cap > $10B) using S&P 500 as a proxy
             url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
@@ -246,6 +246,26 @@ def show_screen(st):
                         else (row["price_at_trend_found"] - row["current_price"]) / row["price_at_trend_found"] * 100),
             axis=1
         ).round(2)
+
+        # Calculate Summary Metrics
+        winners = len(strategy_df[strategy_df["profit_percent"] > 0])
+        losers = len(strategy_df[strategy_df["profit_percent"] < 0])
+        total_trades = len(strategy_df)
+        winning_percentage = (winners / total_trades * 100) if total_trades > 0 else 0
+        biggest_winner = strategy_df.loc[strategy_df["profit_percent"].idxmax()] if not strategy_df.empty else None
+        biggest_loser = strategy_df.loc[strategy_df["profit_percent"].idxmin()] if not strategy_df.empty else None
+
+        # Display Summary
+        st.subheader("📊 Screening Summary")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Trades: ", f"{total_trades}")
+        with col2:
+            st.metric("% Winning", f"{winning_percentage:.2f}% ({winners}/{total_trades})")
+        with col3:
+            st.metric("Biggest Winner", f"{biggest_winner['symbol'] if biggest_winner is not None else 'N/A'} ({biggest_winner['profit_percent']:.2f}%)")
+        with col4:
+            st.metric("Biggest Loser", f"{biggest_loser['symbol'] if biggest_loser is not None else 'N/A'} ({biggest_loser['profit_percent']:.2f}%)")
 
         # Stylish table with custom headers
         st.subheader("📈 Screened Stocks")
